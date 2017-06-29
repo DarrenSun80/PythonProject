@@ -3,6 +3,9 @@
 
 __author__='Darren Sun'
 
+'''
+ORM DB
+'''
 import asyncio,logging
 import aiomysql
 
@@ -34,7 +37,7 @@ async def select(sql,args,size=None):
                 rs = await cur.fetchmany(size)
             else:
                 rs = await cur.fetchall()
-        logging.info('rows return:%s' %len(rs))
+        logging.info('rows returned: %s' % len(rs))
         return rs
         
 async def execute(sql,args,autocommit=True):
@@ -92,22 +95,22 @@ class ModelMetaclass(type):
         logging.info('found model:%s(table:%s)' %(name,tableName))
         mappings=dict()
         fields=[]
-        primary_key=None
-        for k,v in attrs.item():
+        primaryKey = None
+        for k, v in attrs.items():
             if isinstance(v,Field):
                 logging.info(' found mapping:%s==>%s'%(k,v))
-                mappings[k]=value
+                mappings[k] = v
                 if v.primary_key:
                     if primaryKey:
                         raise StandardError('Duplicate primary key for field:%s' %k)
-                    primaryKey=key
+                    primaryKey = k
                 else:
-                    field.append(k)
+                    fields.append(k)
         if not primaryKey:
             raise StandardError('Primary key not found.')
         for k in mappings.keys():
             attrs.pop(k)
-        escaped_fields=list(map(lambda f:'%s' %f,fields))
+        escaped_fields = list(map(lambda f: '`%s`' % f, fields))
         attrs['__mappings__'] = mappings
         attrs['__table__'] = tableName
         attrs['__primary_key__'] = primaryKey
@@ -164,6 +167,7 @@ async def findAll(cls,where=None,args=None,**kw):
             args.append(limit)
         elif isinstance(limit,tuple) and len(limit) ==2:
             sql.append('?,?')
+            args.extend(limit)
         else:
             raise ValueError('Invalid limit value:%s' %str(limit))
     rs=await select(''.join(sql),args)
@@ -191,10 +195,17 @@ async def save(self):
     args=list(map(self.getValueOrDefault,self.__fields__))
     args.append(self.getValueOrDefault(self.__primary_key__))
     rows = await execute(self.__insert__,args)
-    if row != 1:
+    if rows != 1:
         logging.warn('failed to insert record:affected rows:%s' %rows)
+async def update(self):
+    args = list(map(self.getValue, self.__fields__))
+    args.append(self.getValue(self.__primary_key__))
+    rows = await execute(self.__update__, args)
+    if rows != 1:
+        logging.warn('failed to update by primary key: affected rows: %s' % rows)
+        
 async def remove(self):
     args = [self.getValue(self.__primary_key__)]
     rows = await execute(self.__delete__,args)
-    if row != 1:
+    if rows != 1:
         logging.warn('failed to remove by primary key:affected rows :%s' %rows)
